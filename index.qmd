@@ -1,0 +1,757 @@
+---
+title: "Near a Hospital, Near a Pharmacy?"
+subtitle: "Two perspectives on geographic proximity to healthcare facilities"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+    embed-resources: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(janitor)
+
+health <- read_csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2026/2026-09-29/health.csv",
+  show_col_types = FALSE
+) |>
+  clean_names()
+
+access_comparison <- health |>
+  transmute(
+    city = gc_ucn_mai_2025,
+    country = gc_cnt_gad_2025,
+    population = gc_pop_tot_2025,
+    hospital_pct = hl_shp_hos_2025,
+    pharmacy_pct = hl_shp_pha_2025
+  ) |>
+  filter(
+    !is.na(hospital_pct),
+    !is.na(pharmacy_pct)
+  ) |>
+  mutate(
+    hospital_advantage_pp = hospital_pct - pharmacy_pct
+  )
+```
+
+## Story summary
+
+Does living near one type of healthcare facility imply living near another?
+Among 2,345 urban centres with both proximity measurements available,
+the median share of residents living within one kilometre of a hospital
+is 31.8%, compared with 18.8% for a pharmacy.
+
+However, comparing these separate medians does not establish whether
+the hospital advantage holds within individual cities. A paired
+comparison shows that hospital proximity is higher in 68.7% of urban
+centres, while pharmacy proximity is higher in 717 cities and the two
+measures are equal in 18. The median within-city difference is 9.47
+percentage points in favour of hospitals.
+
+The story therefore progresses from an overall contrast to an important
+qualification: hospital proximity is usually higher, but not everywhere.
+Proximity to one facility type should not be assumed to indicate
+equivalent proximity to another.
+
+These findings describe the subset of urban centres with both
+measurements available. They measure geographic proximity, not
+healthcare quality, affordability, capacity, or actual use.
+
+## Version A: Scientific article
+
+### Comparing the distributions
+
+Hospital and pharmacy proximity describe different aspects of geographic
+access. We first compare their distributions across the same 2,345 urban
+centres, giving each urban centre equal weight.
+
+```{r}
+#| label: fig-scientific-distributions
+#| fig-width: 8
+#| fig-height: 6
+#| fig-alt: "Two greyscale histograms compare hospital and pharmacy proximity across 2,345 urban centres. Dashed lines mark median proximity of 31.8 percent for hospitals and 18.8 percent for pharmacies."
+#| fig-cap: "Distribution of population proximity to hospitals and pharmacies in the matched sample. Each observation is an urban centre; bars represent 5-percentage-point intervals. Dashed lines indicate medians. Both panels use identical scales."
+
+access_long_final <- access_comparison |>
+  select(hospital_pct, pharmacy_pct) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "facility",
+    values_to = "proximity_pct"
+  ) |>
+  mutate(
+    facility = factor(
+      facility,
+      levels = c("hospital_pct", "pharmacy_pct"),
+      labels = c("Hospital", "Pharmacy")
+    )
+  )
+
+median_labels <- access_long_final |>
+  group_by(facility) |>
+  summarise(
+    median_pct = median(proximity_pct),
+    .groups = "drop"
+  ) |>
+  mutate(
+    label = paste0("Median: ", round(median_pct, 1), "%")
+  )
+
+scientific_1 <- ggplot(
+  access_long_final,
+  aes(x = proximity_pct)
+) +
+  geom_histogram(
+    binwidth = 5,
+    boundary = 0,
+    fill = "grey75",
+    colour = "white"
+  ) +
+  geom_vline(
+    data = median_labels,
+    aes(xintercept = median_pct),
+    linetype = "dashed",
+    linewidth = 0.7
+  ) +
+  geom_text(
+    data = median_labels,
+    aes(x = 98, y = Inf, label = label),
+    hjust = 1,
+    vjust = 1.5,
+    size = 3.8
+  ) +
+  facet_wrap(~ facility, ncol = 1) +
+  scale_x_continuous(
+    breaks = seq(0, 100, 20),
+    labels = scales::label_percent(scale = 1)
+  ) +
+  coord_cartesian(xlim = c(0, 100)) +
+  labs(
+    x = "Residents living within 1 km of the facility (%)",
+    y = "Number of urban centres"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey95")
+  )
+
+print(scientific_1)
+```
+
+Median hospital proximity is 31.8%, compared with 18.8% for pharmacies.
+These are medians of city-level population shares, not estimates for the
+combined population of all sampled cities.
+
+However, separate distributions cannot establish how often hospital
+proximity exceeds pharmacy proximity within the same city. We therefore
+turn to a paired comparison.
+
+### Comparing facilities within cities
+
+For each urban centre, we subtract pharmacy proximity from hospital
+proximity. A positive difference indicates higher hospital proximity;
+a negative difference indicates higher pharmacy proximity. Differences
+are expressed in percentage points.
+
+```{r}
+#| label: fig-scientific-differences
+#| fig-width: 8
+#| fig-height: 5.5
+#| fig-alt: "A greyscale histogram shows within-city differences in hospital minus pharmacy proximity. Hospital proximity is higher in 1,610 cities, pharmacy proximity is higher in 717, and 18 have equal proximity. The median difference is 9.47 percentage points."
+#| fig-cap: "Within-city differences in population proximity to hospitals and pharmacies among 2,345 urban centres. Bars represent 5-percentage-point intervals. The solid vertical line marks equal proximity; the dashed line marks the median difference of 9.47 percentage points. Eighteen urban centres have equal proximity."
+
+scientific_2 <- ggplot(
+  access_comparison,
+  aes(x = hospital_advantage_pp)
+) +
+  geom_histogram(
+    binwidth = 5,
+    boundary = 0,
+    fill = "grey75",
+    colour = "white"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linewidth = 0.8
+  ) +
+  geom_vline(
+    xintercept = median(
+      access_comparison$hospital_advantage_pp
+    ),
+    linetype = "dashed",
+    linewidth = 0.8
+  ) +
+  annotate(
+    "label",
+    x = -95,
+    y = Inf,
+    label = "Pharmacy proximity higher\n717 urban centres",
+    hjust = 0,
+    vjust = 1.2,
+    size = 3.3
+  ) +
+  annotate(
+    "label",
+    x = 95,
+    y = Inf,
+    label = "Hospital proximity higher\n1,610 urban centres",
+    hjust = 1,
+    vjust = 1.2,
+    size = 3.3
+  ) +
+  scale_x_continuous(
+    breaks = seq(-100, 100, 25)
+  ) +
+  coord_cartesian(
+    xlim = c(-100, 100)
+  ) +
+  labs(
+    x = "Hospital proximity minus pharmacy proximity (percentage points)",
+    y = "Number of urban centres"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+print(scientific_2)
+```
+
+Hospital proximity exceeds pharmacy proximity in 1,610 of the 2,345
+urban centres (68.7%). Pharmacy proximity is higher in 717 urban centres,
+while 18 have equal proximity. The median within-city difference is
+9.47 percentage points in favour of hospitals.
+
+The paired comparison qualifies the initial distributional contrast:
+the hospital advantage is common, but not universal. Moreover, the
+median paired difference is not the difference between the two
+separate medians. Each paired difference compares the two facility
+types within the same urban centre.
+
+These findings are descriptive and apply to the matched available-data
+sample. They do not establish a causal relationship or measure healthcare
+quality, capacity, affordability, or utilization.
+
+## Version B: Accessible explainer
+
+### More residents live near hospitals in the typical city
+
+A hospital and a pharmacy serve different needs. Being geographically
+close to one does not necessarily mean being close to the other.
+
+We compared the share of residents living within one kilometre of each
+facility type in 2,345 urban centres with both measurements available.
+In the typical city in this sample, the hospital percentage is higher.
+
+```{r}
+#| label: fig-accessible-medians
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-alt: "Two horizontal bars show median population proximity: 31.8 percent for hospitals and 18.8 percent for pharmacies. Facility names and percentages are directly labelled."
+#| fig-cap: "Median city-level proximity in the same 2,345 urban centres. These percentages do not describe the combined population of the sampled cities."
+
+public_medians <- access_comparison |>
+  summarise(
+    Hospital = median(hospital_pct),
+    Pharmacy = median(pharmacy_pct)
+  ) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "facility",
+    values_to = "median_pct"
+  ) |>
+  mutate(
+    facility = factor(
+      facility,
+      levels = c("Pharmacy", "Hospital")
+    ),
+    value_label = paste0(
+      round(median_pct, 1),
+      "%"
+    )
+  )
+
+accessible_1 <- ggplot(
+  public_medians,
+  aes(
+    x = median_pct,
+    y = facility,
+    fill = facility
+  )
+) +
+  geom_col(
+    width = 0.5,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    aes(label = value_label),
+    hjust = -0.2,
+    size = 5,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Hospital" = "#0072B2",
+      "Pharmacy" = "#D55E00"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = seq(0, 100, 20),
+    labels = scales::label_percent(scale = 1),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  coord_cartesian(
+    xlim = c(0, 100)
+  ) +
+  labs(
+    title = "About 32% near hospitals, versus 19% near pharmacies",
+    subtitle = "Median share of residents living within 1 km",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.y = element_text(
+      size = 13,
+      colour = "black"
+    ),
+    plot.title.position = "plot"
+  )
+
+print(accessible_1)
+```
+
+“Typical” here means the median urban centre: half the cities have
+proximity at or below that value, and half at or above it. Each city
+counts equally, regardless of population.
+
+But these two summary values leave something unresolved. Does hospital
+proximity exceed pharmacy proximity within most individual cities—or
+does the overall comparison hide a different city-by-city pattern?
+
+### But the hospital advantage is not universal
+
+To answer that question, we compared hospital and pharmacy proximity
+within each city. The hospital advantage holds in about seven out of
+ten urban centres—but there are hundreds of exceptions.
+
+```{r}
+#| label: fig-accessible-comparison
+#| fig-width: 9
+#| fig-height: 4.8
+#| fig-alt: "Three directly labelled horizontal bars show that hospital proximity is higher in 68.7 percent of urban centres, pharmacy proximity is higher in 30.6 percent, and proximity is equal in 0.8 percent."
+#| fig-cap: "Within-city comparison for 2,345 urban centres with both measurements available. Percentages describe cities, not the combined population. Rounded percentages may not total exactly 100%."
+
+public_comparison <- access_comparison |>
+  mutate(
+    outcome = case_when(
+      hospital_advantage_pp > 0 ~ "Hospital proximity higher",
+      hospital_advantage_pp < 0 ~ "Pharmacy proximity higher",
+      TRUE ~ "Equal proximity"
+    )
+  ) |>
+  count(outcome, name = "cities") |>
+  mutate(
+    percent = 100 * cities / sum(cities),
+    outcome = factor(
+      outcome,
+      levels = c(
+        "Equal proximity",
+        "Pharmacy proximity higher",
+        "Hospital proximity higher"
+      )
+    ),
+    value_label = paste0(
+      round(percent, 1),
+      "%  (",
+      scales::comma(cities),
+      " cities)"
+    )
+  )
+
+accessible_2 <- ggplot(
+  public_comparison,
+  aes(
+    x = percent,
+    y = outcome,
+    fill = outcome
+  )
+) +
+  geom_col(
+    width = 0.5,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    aes(label = value_label),
+    hjust = -0.12,
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Hospital proximity higher" = "#0072B2",
+      "Pharmacy proximity higher" = "#D55E00",
+      "Equal proximity" = "#666666"
+    )
+  ) +
+  scale_x_continuous(
+    breaks = seq(0, 100, 20),
+    labels = scales::label_percent(scale = 1),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+  coord_cartesian(
+    xlim = c(0, 100)
+  ) +
+  labs(
+    title = "Hospitals have the advantage—but not everywhere",
+    subtitle = "Pharmacy proximity is higher in 717 urban centres",
+    x = "Share of urban centres",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.y = element_text(
+      size = 11,
+      colour = "black"
+    ),
+    plot.title.position = "plot"
+  )
+
+print(accessible_2)
+```
+
+Hospital proximity is higher in 1,610 cities, while pharmacy proximity
+is higher in 717. The remaining 18 have equal proximity.
+
+How large is the difference? Across the matched sample, the median
+hospital-minus-pharmacy gap is 9.47 percentage points. For example,
+40% near a hospital and 30% near a pharmacy would represent a
+10-percentage-point hospital advantage. This example illustrates the
+unit; it is not a reported city measurement.
+
+The takeaway is not that hospitals are always easier to reach. It is
+that the two kinds of geographic proximity are not interchangeable:
+a city can score differently depending on which facility type we examine.
+
+Finally, “within one kilometre” does not tell us whether a facility is
+affordable, adequately staffed, or accessible along actual travel routes.
+These findings describe geographic proximity in the available-data
+sample, not the overall adequacy of healthcare.
+
+## Data and source note
+
+### Source and measurement
+
+This analysis uses `health.csv` from the
+[TidyTuesday release of 29 September 2026](https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-09-29/readme.md).
+The underlying source is the European Commission Joint Research Centre's
+Global Human Settlement Urban Centre Database, GHS-UCDB R2024A:
+GHS Urban Centre Database 2025.
+
+The unit of analysis is an urban centre as delineated in that database,
+not necessarily an administrative municipality.
+
+The analysis uses two indicators:
+
+- `HL_SHP_HOS_2025`: share of the urban-centre population living within a 1 km buffer of a hospital.
+- `HL_SHP_PHA_2025`: share living within a 1 km buffer of a pharmacy.
+
+In the supplied CSV, these values are expressed on a 0–100 percentage
+scale. They are not multiplied by 100 during analysis.
+
+### Analytical sample and missing values
+
+The dataset contains 11,422 urban centres. Hospital proximity is missing
+for 4,988 and pharmacy proximity for 8,952. These missingness counts
+overlap.
+
+The analysis retains the 2,345 urban centres with both proximity
+measurements available—approximately one-fifth of the original dataset.
+The same matched sample is used throughout both presentation versions.
+Missing values are excluded, not interpreted as zero proximity.
+Income-group information and city names are not required for inclusion.
+
+The reasons for missingness are not established in this analysis.
+The retained cities may differ systematically from excluded cities.
+Consequently, these results should not be treated as representative
+estimates for all urban centres worldwide.
+
+### Calculations and interpretation
+
+Each urban centre receives equal weight. The medians and comparison
+percentages therefore describe cities, not the combined population
+of all cities.
+
+For each city, the paired difference is calculated as:
+
+**Hospital proximity − pharmacy proximity**
+
+A positive difference indicates higher hospital proximity; a negative
+difference indicates higher pharmacy proximity. Differences are measured
+in percentage points.
+
+The median paired difference is calculated from the individual
+city-level differences. It is not calculated by subtracting the two
+separate facility medians.
+
+Both scientific histograms use 5-percentage-point intervals. The
+accessible figures summarize the same sample using facility medians
+and the proportions of cities with positive, negative, or zero
+differences. Displayed values are rounded.
+
+### Limitations
+
+A one-kilometre buffer measures geographic proximity. It does not measure
+travel time, route accessibility, affordability, staffing, service
+capacity, healthcare quality, or actual utilization.
+
+Hospitals and pharmacies provide different services. Higher proximity
+to one facility type is not evidence that it substitutes for the other
+or that a city's healthcare provision is adequate.
+
+The analysis is descriptive. No causal effects or population-level
+inferential claims are estimated. No confidence intervals are presented:
+the figures summarize the available-data sample, and uncertainty about
+coverage and missingness is not resolved by these descriptive summaries.
+
+## Generative AI disclosure
+
+I used Perplexity, a generative AI assistant, to support this assignment.
+AI assistance contributed initial exploration of dataset;
+development of the narrative; R code for data import,
+cleaning, descriptive calculations, and visualization; interpretation
+of summary results; and preparation of the Quarto document.
+
+I requested help adapting the same empirical story for scientific and
+public-facing audiences, drafting and revising the story summary,
+explanatory prose, figure captions, accessibility text, and data/source
+note. I also requested step-by-step RStudio and Quarto guidance and
+troubleshooting of package compatibility, percentage scaling,
+missing variables, plot labelling, axis limits, and document rendering.
+
+The assistance included proposed code and text that I incorporated
+into the deliverable, rather than only editing material I had written.
+I ran the code and inspected the resulting outputs. Some initial
+AI-generated suggestions and code required correction during the
+workflow.
+
+The AI Prompt Appendix reproduces the prompts used in this work
+verbatim. The complete conversation, including responses and supplied
+screenshots, is retained for instructor or TA review.
+## AI Prompt Appendix
+
+The following prompts were submitted to Perplexity during preparation
+of this assignment. Prompts are reproduced verbatim in chronological
+order, including follow-up requests and troubleshooting messages.
+Where a prompt included an attachment, the attachment is identified
+separately; the original attachment is retained with the complete
+conversation record.
+### Prompt 1
+
+```text
+I have a data visualization assignment in my graduate statistics and r coding course, what would be the best data to look at to create a story through data visualization like this reading suggests: [https://clauswilke.com/dataviz/telling-a-story.html](https://clauswilke.com/dataviz/telling-a-story.html)
+### Prompt 2
+
+```text
+it has to be data from this website [https://github.com/rfordatascience/tidytuesday](https://github.com/rfordatascience/tidytuesday)   . what would be the best option and what data visualization would you recommend
+```
+### Prompt 3
+
+```text
+this is the data [https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-09-29/readme.md](https://github.com/rfordatascience/tidytuesday/blob/main/data/2026/2026-09-29/readme.md) . what to do from here
+```
+
+### Prompt 4
+
+```text
+you wrote a lot of code. i just want a step by step guide to make these 4 figures you mentioned. i did not open rstudio yet either
+```
+### Prompt — Figure 3 error
+
+```text
+says this
+```
+
+Attachment: RStudio screenshot showing the error that
+`label_number_si()` is no longer supported.
+The original image is retained with the complete conversation record.
+
+### Prompt — Request to simplify Figure 4
+
+```text
+the thing is, the last figure is very complicated and ugly with the labelling of countries. i want it to be simpler to understand
+```
+
+### Prompt — Figure 4 error screenshot
+
+```text
+image.jpg
+```
+
+Attachment: RStudio screenshot showing the error
+`object 'city_country' not found`.
+The original image is retained with the complete conversation record.
+
+### Prompt — Request to improve Figure 4
+
+```text
+all the bars are red. i want to make this a memorable figure remember, so i don't want all red. also the x axis is muddled up and is hard to tell what is going on. i need this to be simpler, memorable, and easier to understand the story
+```
+
+Attachment: Screenshot of the initial horizontal bar chart for Figure 4.
+The original image is retained with the complete conversation record.
+### Prompt — Resume work in the saved project
+
+```text
+i see my code, now proceed
+```
+
+### Prompt — Clarify where to paste code
+
+```text
+is the script the top left below figure 4 or in the console
+```
+
+### Prompt — Missing-value output screenshot
+
+```text
+image.jpg
+```
+
+Attachment: RStudio screenshot showing the missing-value diagnostic
+results, including 2,345 urban centres with both proximity measures.
+The original image is retained with the complete conversation record.
+
+### Prompt — Paired-comparison results
+
+```text
+# A tibble: 1 × 12
+  cities hospital_min hospital_max pharmacy_min pharmacy_max median_hospital_pct
+   <int>        <dbl>        <dbl>        <dbl>        <dbl>               <dbl>
+1   2345      0.00182         94.7      0.00376         98.9                31.8
+  median_pharmacy_pct median_difference_pp hospital_higher_n pharmacy_higher_n equal_n
+                <dbl>                <dbl>             <int>             <int>   <int>
+1                18.8                 9.47              1610               717      18
+  hospital_higher_percent
+                    <dbl>
+1                    68.7
+```
+
+### Prompt — Scientific Figure 1 completed
+
+```text
+it worked
+```
+
+### Prompt — Scientific Figure 2 completed
+
+```text
+it worked
+```
+
+### Prompt — Accessible Figure 1 completed
+
+```text
+it worked
+```
+
+### Prompt — Clarify setup-block placement
+
+```text
+for step 2 do i paste the block in line 15
+```
+
+Attachment: RStudio screenshot showing the header of index.qmd and
+the blank line above the Story summary heading.
+The original image is retained with the complete conversation record.
+
+### Prompt — Check setup-block placement
+
+```text
+like this?
+```
+
+Attachment: RStudio screenshot showing the end of the setup code
+chunk and the Story summary heading.
+The original image is retained with the complete conversation record.
+
+### Prompt — Quarto rendering error
+
+```text
+==> quarto preview index.qmd --to html --no-watch-inputs --no-browse
+
+
+
+processing file: index.qmd
+  |.........................................                     |  67% [setup]
+
+Error:
+! 
+  '[https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2026/2026-09-29/health.csv](https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2026/2026-09-29/health.csv)'
+  does not exist in current working directory:
+  'C:/Users/jocel/OneDrive/Documents/urban_health_access'.
+Backtrace:
+    ▆
+ 1. ├─janitor::clean_names(...)
+ 2. ├─readr::read_csv(...)
+ 3. │ └─vroom::vroom(...)
+ 4. │   └─vroom:::vroom_(...)
+ 5. └─vroom (local) `<fn>`("[https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2026/2026-09-29/health.csv](https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2026/2026-09-29/health.csv)")
+ 6.   └─vroom:::check_path(path)
+ 7.     └─cli::cli_abort(msg, call = call)
+ 8.       └─rlang::abort(...)
+
+Quitting from index.qmd:15-43 [setup]
+                                                                                                  
+Execution halted
+WARN: Error encountered when rendering files
+```
+
+### Prompt — Scientific Figure 1 appears on the webpage
+
+```text
+figure 1 appears
+```
+
+### Prompt — Scientific Figure 2 appears on the webpage
+
+```text
+figure 2 appears
+```
+
+### Prompt — Accessible Figure 1 appears on the webpage
+
+```text
+accessible figure 1 appears
+```
+
+### Prompt — Accessible Figure 2 appears on the webpage
+
+```text
+accessible figure 2 appears
+```
+
+### Prompt — Source-note confirmation
+
+```text
+source not appears
+```
+
+### Prompt — Clarify source-note visibility
+
+```text
+visible
+```
